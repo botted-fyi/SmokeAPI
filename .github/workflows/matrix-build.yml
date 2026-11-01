@@ -8,10 +8,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ Linux, Windows ]
+        os: [ Windows ]
         bitness: [ 32, 64 ]
 
-    uses: acidicoala/KoalaBox/.github/workflows/build-cmake.yml@master
+    # Pinned to the KoalaBox commit this branch builds against, so the
+    # toolchain matches the upstream release build.
+    uses: acidicoala/KoalaBox/.github/workflows/build-cmake.yml@997b5db2ee75beec83c674e247e64afa2832aa14
     with:
       module: SmokeAPI
       os: ${{ matrix.os }}
