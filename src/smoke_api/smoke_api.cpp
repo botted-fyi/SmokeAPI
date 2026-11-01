@@ -110,6 +110,27 @@ namespace {
     }
 
 #ifdef KB_WIN
+    // Orca Unlocker patch: keep SmokeAPI loaded until the process exits.
+    //
+    // Hooks are never removed in shutdown(). If a game unloads steam_api64.dll
+    // and loads it again, the new copy usually lands at the same base address,
+    // so steamclient's CreateInterface still jumps into this module. PolyHook
+    // follows that jump to our own detour and hooks it onto itself, and the
+    // game hangs on its first CreateInterface call. Pinning the module turns
+    // the game's FreeLibrary into a no-op, so SmokeAPI initializes only once.
+    void pin_self(void* self_module_handle) {
+        HMODULE pinned = nullptr;
+        if(GetModuleHandleExW(
+               GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+               static_cast<LPCWSTR>(self_module_handle),
+               &pinned
+           )) {
+            LOG_DEBUG("Pinned self module {} until process exit", static_cast<void*>(pinned));
+        } else {
+            LOG_WARN("Failed to pin self module. Last error: {}", GetLastError());
+        }
+    }
+
     void warn_if_late_injection(const std::string& steamclient_version) {
         if(kb::util::is_wine_env()) {
             return;
@@ -127,6 +148,13 @@ namespace {
 
     // ReSharper disable once CppDFAConstantFunctionResult
     bool on_steamclient_loaded(void* steamclient_handle) {
+        // Orca Unlocker patch: hooking CreateInterface twice would make the
+        // detour jump to itself.
+        if(kb::hook::is_hooked("CreateInterface")) {
+            LOG_WARN("CreateInterface is already hooked. Skipping detour.");
+            return true;
+        }
+
         KB_HOOK_DETOUR_MODULE(CreateInterface, steamclient_handle);
 
         if(!is_hook_mode) {
@@ -291,6 +319,7 @@ namespace smoke_api {
 
 #ifdef KB_WIN
             kb::win::check_self_duplicates();
+            pin_self(self_module_handle);
 #endif
 
             // We need to hook functions in either mode
